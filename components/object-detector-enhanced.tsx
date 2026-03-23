@@ -27,6 +27,8 @@ const DEFAULT_CONFIG = {
   use_nms: true,
   min_detection_area: 100,
 }
+const MAX_UPLOAD_DIMENSION = 1280
+const UPLOAD_JPEG_QUALITY = 0.82
 
 export function ObjectDetector() {
   const [activeTab, setActiveTab] = useState('upload')
@@ -87,6 +89,9 @@ export function ObjectDetector() {
         return
       }
 
+      // Keep backend enabled when URL exists; config fetch can fail during cold starts.
+      setUseBackend(true)
+
       try {
         const response = await fetch(`${BACKEND_URL}/api/config`)
         const data = await response.json()
@@ -97,7 +102,6 @@ export function ObjectDetector() {
           console.log('✓ Optimal config loaded:', data.config)
         }
       } catch (err) {
-        setUseBackend(false)
         setOptimalConfig(DEFAULT_CONFIG)
         console.log('Backend config endpoint unavailable, using default config')
       }
@@ -173,9 +177,8 @@ export function ObjectDetector() {
         setError(data.error || 'Detection failed')
       }
     } catch (err) {
-      setUseBackend(false)
       console.error('Backend error:', err)
-      setError(`Backend connection failed. Ensure the backend is deployed and reachable at ${BACKEND_URL}`)
+      setError(`Backend request failed. If your backend is on Render free tier, wait a few seconds and try again: ${BACKEND_URL}`)
     }
   }, [confidence, optimalConfig])
 
@@ -281,14 +284,50 @@ export function ObjectDetector() {
     }
   }, [webcamActive, useBackend, detectWebcamFrame])
 
+  const optimizeImageForBackend = useCallback((imageData: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        const longestSide = Math.max(img.width, img.height)
+        if (longestSide <= MAX_UPLOAD_DIMENSION) {
+          resolve(imageData)
+          return
+        }
+
+        const scale = MAX_UPLOAD_DIMENSION / longestSide
+        const targetWidth = Math.round(img.width * scale)
+        const targetHeight = Math.round(img.height * scale)
+
+        const canvas = document.createElement('canvas')
+        canvas.width = targetWidth
+        canvas.height = targetHeight
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          reject(new Error('Canvas unavailable'))
+          return
+        }
+
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight)
+        resolve(canvas.toDataURL('image/jpeg', UPLOAD_JPEG_QUALITY))
+      }
+      img.onerror = () => reject(new Error('Unable to process uploaded image'))
+      img.src = imageData
+    })
+  }, [])
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const imageData = event.target?.result as string
-      setUploadedImage(imageData)
+      try {
+        const optimizedImage = await optimizeImageForBackend(imageData)
+        setUploadedImage(optimizedImage)
+      } catch {
+        setUploadedImage(imageData)
+      }
       setResult(null)
     }
     reader.readAsDataURL(file)
