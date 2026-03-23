@@ -16,7 +16,10 @@ interface DetectionResult {
   config_used?: Record<string, any>
 }
 
-const BACKEND_URL = 'http://localhost:5000'
+const BACKEND_URL = (
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  (process.env.NODE_ENV === 'development' ? 'http://localhost:5000' : '')
+).replace(/\/$/, '')
 const DEFAULT_CONFIG = {
   confidence: 0.55,
   iou_threshold: 0.45,
@@ -78,15 +81,23 @@ export function ObjectDetector() {
   // Fetch optimal config from backend on mount
   useEffect(() => {
     const fetchConfig = async () => {
+      if (!BACKEND_URL) {
+        setUseBackend(false)
+        setOptimalConfig(DEFAULT_CONFIG)
+        return
+      }
+
       try {
         const response = await fetch(`${BACKEND_URL}/api/config`)
         const data = await response.json()
         if (data.config) {
+          setUseBackend(true)
           setOptimalConfig(data.config)
           setConfidence(data.config.confidence || 0.55)
           console.log('✓ Optimal config loaded:', data.config)
         }
       } catch (err) {
+        setUseBackend(false)
         setOptimalConfig(DEFAULT_CONFIG)
         console.log('Backend config endpoint unavailable, using default config')
       }
@@ -123,6 +134,12 @@ export function ObjectDetector() {
   }, [result?.image, drawResultImage])
 
   const detectWithBackend = useCallback(async (imageData: string) => {
+    if (!BACKEND_URL) {
+      setUseBackend(false)
+      setError('Backend URL is not configured. Set NEXT_PUBLIC_BACKEND_URL in Vercel project settings.')
+      return
+    }
+
     try {
       const payload = {
         image: imageData,
@@ -156,8 +173,9 @@ export function ObjectDetector() {
         setError(data.error || 'Detection failed')
       }
     } catch (err) {
+      setUseBackend(false)
       console.error('Backend error:', err)
-      setError('Backend connection failed. Make sure Flask server is running at http://localhost:5000')
+      setError(`Backend connection failed. Ensure the backend is deployed and reachable at ${BACKEND_URL}`)
     }
   }, [confidence, optimalConfig])
 
