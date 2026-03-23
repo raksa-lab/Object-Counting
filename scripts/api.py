@@ -20,7 +20,7 @@ CORS(app)
 
 # Load YOLOv8 model - use larger model for better accuracy
 try:
-    model = YOLO("yolov8m.pt")  # Medium model for better accuracy
+    model = YOLO("yolo26n.pt")  # Medium model for better accuracy
     print("✓ Loaded YOLOv8m model")
 except:
     model = YOLO("yolov8n.pt")  # Fallback to nano
